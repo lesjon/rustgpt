@@ -1,24 +1,77 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
+pub type Messages = Vec<Message>;
 
-#[derive(Debug, Serialize, Deserialize)]
+pub trait ChatHistory {
+    fn add_user_message(&mut self, msg: &str);
+    fn add_system_message(&mut self, msg: &str);
+    fn add_message(&mut self, role: &str, msg: &str);
+
+    fn from(openai_message: Message) -> Messages {
+        vec![openai_message]
+    }
+
+    fn new() -> Messages {
+        vec![]
+    }
+}
+
+impl ChatHistory for Messages {
+    fn add_user_message(&mut self, msg: &str) {
+        self.add_message("user", msg)
+    }
+
+    fn add_system_message(&mut self, msg: &str) {
+        self.add_message("system", msg)
+    }
+
+    fn add_message(&mut self, role: &str, msg: &str) {
+        let openai_msg = Message {
+            role: role.to_string(),
+            content: msg.to_string(),
+            function_call: None,
+        };
+        self.push(openai_msg);
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
-    pub(crate) content: String,
-    pub(crate) role: String,
+    pub content: String,
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function_call: Option<FunctionCall>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Chat {
-    messages: Vec<Message>,
+pub struct OpenaiFunction {
+    pub name: String,
+    pub description: String,
+    pub parameters: FunctionParameters,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FunctionParameters {
+    pub r#type: String,
+    pub properties: HashMap<String, FunctionProperty>,
+    pub required: Vec<String>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FunctionProperty {
+    pub r#type: String,
+    pub description: Option<String>,
+    pub r#enum: Vec<String>
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OpenAiRequest {
-    pub(crate) model: String,
-    pub(crate) messages: Vec<Message>,
-    pub(crate) temperature: f32,
-    pub(crate) stream: Option<bool>,
+    pub model: String,
+    pub messages: Messages,
+    pub temperature: f32,
+    pub stream: Option<bool>,
+    pub functions: Option<Vec<OpenaiFunction>>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,26 +80,31 @@ pub struct OpenAiResponse {
     object: String,
     created: u64,
     model: String,
-    pub(crate) choices: Vec<Choice>,
+    pub choices: Vec<Choice>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Choice {
-    message: Option<Message>,
-    pub(crate) delta: Option<Delta>,
-    finish_reason: Option<String>,
-    index: u64,
+    pub(crate) message: Option<Message>,
+    pub delta: Option<Delta>,
+    pub(crate) finish_reason: Option<String>,
+    pub(crate) index: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Delta {
-    pub(crate) content: Option<String>,
-    pub(crate) role: Option<String>,
-    function_call: Option<FunctionCall>,
+    pub content: Option<String>,
+    pub role: Option<String>,
+    pub function_call: Option<StreamingFunctionCall>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FunctionCall {
-    name: String,
-    arguments: Vec<String>,
+    pub name: String,
+    pub arguments: HashMap<String, String>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StreamingFunctionCall {
+    pub name: Option<String>,
+    pub arguments: Option<String>
 }
