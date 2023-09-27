@@ -8,6 +8,8 @@ pub trait ChatHistory {
     fn add_system_message(&mut self, msg: &str);
     fn add_message(&mut self, role: &str, msg: &str);
 
+    fn add_pwsh_message(&mut self, msg: &str);
+
     fn from(openai_message: Message) -> Messages {
         vec![openai_message]
     }
@@ -20,6 +22,10 @@ pub trait ChatHistory {
 impl ChatHistory for Messages {
     fn add_user_message(&mut self, msg: &str) {
         self.add_message("user", msg)
+    }
+
+    fn add_pwsh_message(&mut self, msg: &str) {
+        self.add_message("pwsh", msg)
     }
 
     fn add_system_message(&mut self, msg: &str) {
