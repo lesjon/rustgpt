@@ -5,7 +5,7 @@ pub use models::*;
 
 use std::error::Error;
 
-fn get_request_with_pwsh_functions(messages: Messages) -> OpenAiRequest {
+fn get_request_with_powershell_functions(messages: Messages) -> OpenAiRequest {
     OpenAiRequest {
         model: "gpt-3.5-turbo".to_string(),
         messages,
@@ -45,12 +45,11 @@ fn get_request_with_pwsh_functions(messages: Messages) -> OpenAiRequest {
     }
 }
 
-pub async fn print_models(openai_api_key: &str, client: &reqwest::Client) -> Result<(), Box<dyn Error>> {
+pub async fn print_models(openai_api_key: &str, client: &reqwest::Client) -> Result<String, Box<dyn Error>> {
     let res = client.get("https://api.openai.com/v1/models")
         .header("Authorization", format!("Bearer {openai_api_key}"))
         .send().await?;
-    println!("{:?}", res.text().await?);
-    Ok(())
+    Ok(res.text().await?)
 }
 
 struct OpenAiResponseIter {
@@ -72,7 +71,6 @@ impl Iterator for OpenAiResponseIter {
         };
         let line = self.buffer.drain(..=index).collect::<Vec<u8>>();
         self.buffer.remove(0);
-        println!("line: {:?}", String::from_utf8(line.to_vec()));
         if line.is_empty() {
             return None;
         }
@@ -89,7 +87,7 @@ impl Iterator for OpenAiResponseIter {
 }
 
 pub async fn get_next(openai_api_key: &str, client: &reqwest::Client, mut history: Messages) -> Result<Messages, Box<dyn Error>> {
-    let request = get_request_with_pwsh_functions(history.clone());
+    let request = get_request_with_powershell_functions(history.clone());
     let body_str = serde_json::to_string(&request)?;
     let mut response = client.post("https://api.openai.com/v1/chat/completions")
         .header("Content-Type", "application/json")
@@ -147,7 +145,6 @@ pub async fn get_next(openai_api_key: &str, client: &reqwest::Client, mut histor
         new_msg.function_call = Some(f_call);
     }
 
-    println!("resulting message: {new_msg:?}");
 
     history.push(new_msg);
     Ok(history)
