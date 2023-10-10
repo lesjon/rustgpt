@@ -13,7 +13,7 @@ fn get_request_with_pwsh_functions(messages: Messages) -> OpenAiRequest {
         stream: Some(true),
         functions: Some(vec![
             OpenaiFunction {
-                name: "pwsh".to_string(),
+                name: "powershell".to_string(),
                 description: "Call a powershell command".to_string(),
                 parameters: FunctionParameters {
                     r#type: "object".to_string(),
