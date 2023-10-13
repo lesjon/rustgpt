@@ -3,13 +3,13 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Messages(Vec<Message>);
+pub struct Messages(pub Vec<Message>);
 
 pub trait ChatHistory {
     fn last(&self) -> Option<&Message>;
     fn push(&mut self, msg: Message);
     fn add_user_message(&mut self, msg: &str);
-    fn add_system_message(&mut self, msg: &str);
+    fn set_system_message(&mut self, msg: &str);
     fn add_message(&mut self, role: &str, msg: &str);
 
     fn add_powershell_message(&mut self, msg: &str);
@@ -21,6 +21,9 @@ pub trait ChatHistory {
     fn new() -> Messages {
         Messages(vec![])
     }
+
+    fn clear_system_messages(&mut self);
+    fn get_system_messages(&self) -> Vec<&Message>;
 }
 
 impl Display for Messages {
@@ -29,7 +32,7 @@ impl Display for Messages {
             if msg.role == "system" {
                 continue;
             }
-            write!(f, "{}", msg)?;
+            write!(f, "{}\n", *msg)?;
         }
         Ok(())
     }
@@ -40,16 +43,22 @@ impl ChatHistory for Messages {
     fn last(&self) -> Option<&Message> {
         self.0.last()
     }
+
     fn push(&mut self, msg: Message) {
         self.0.push(msg)
     }
-
     fn add_user_message(&mut self, msg: &str) {
         self.add_message("user", msg)
     }
 
-    fn add_system_message(&mut self, msg: &str) {
-        self.add_message("system", msg)
+    fn set_system_message(&mut self, msg: &str) {
+        self.clear_system_messages();
+        let openai_msg = Message {
+            role: "system".to_string(),
+            content: msg.to_string(),
+            function_call: None,
+        };
+        self.0.insert(0, openai_msg)
     }
 
     fn add_message(&mut self, role: &str, msg: &str) {
@@ -62,8 +71,25 @@ impl ChatHistory for Messages {
     }
 
     fn add_powershell_message(&mut self, msg: &str) {
-        self.add_message("powershell", msg)
+        self.add_message("function", msg)
     }
+
+    fn clear_system_messages(&mut self) {
+        self.0.retain(|msg| msg.role != "system");
+    }
+
+    fn get_system_messages(&self) -> Vec<&Message>{
+         self.0.iter().filter(|msg| msg.role == "system").collect()
+    }
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Message {
+    pub content: String,
+    pub role: String,
+    #[serde(skip_serializing)]
+    pub function_call: Option<FunctionCall>,
 }
 
 impl Display for Message {
@@ -76,16 +102,9 @@ impl Display for Message {
             }
             write!(f, ")")?;
         }
+        write!(f, "\n")?;
         Ok(())
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Message {
-    pub content: String,
-    pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_call: Option<FunctionCall>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -145,6 +164,7 @@ pub struct Delta {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FunctionCall {
     pub name: String,
+    #[serde(flatten)]
     pub arguments: HashMap<String, String>,
 }
 

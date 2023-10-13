@@ -1,13 +1,69 @@
 mod models;
 
+pub mod config;
+
 use std::collections::HashMap;
 pub use models::*;
 
 use std::error::Error;
+use std::io;
+use log;
+
+const MODEL: &str = "gpt-3.5-turbo";
+
+struct OpenAiResponseIter {
+    buffer: Vec<u8>,
+}
+
+impl Iterator for OpenAiResponseIter {
+    type Item = OpenAiResponse;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        log::debug!("Getting next part from buffer:'{:?}'", self.buffer);
+        if self.buffer.is_empty() {
+            log::debug!("buffer is empty returning None");
+            return None;
+        }
+        let index = if let Some(newline_index) = self.buffer.iter().position(|&x| x == b'\n') {
+            newline_index
+        } else {
+            log::debug!("No more newlines in buffer, returning using full length of buffer");
+            self.buffer.len()
+        };
+        let line = self.buffer.drain(..=index).collect::<Vec<u8>>();
+        log::debug!("Clearing buffer '{:?}' as it's stored in line: {:?}", self.buffer, line);
+        self.buffer.remove(0);
+        if line.is_empty() {
+            log::debug!("No data in line, returning None");
+            return None;
+        }
+        if line.starts_with(b"data: [DONE]") {
+            log::debug!("End of data message");
+            return None;
+        }
+        log::debug!("serde_json parsing '{:?}'", line);
+        if let Ok(openai_resp) = serde_json::from_slice(&line[6..]) {
+            Some(openai_resp)
+        } else {
+            log::error!("could not parse: {:?}", String::from_utf8(line.to_vec()));
+            None
+        }
+    }
+}
+
+fn get_chat_request(messages: Messages) -> OpenAiRequest {
+    OpenAiRequest {
+        model: MODEL.to_string(),
+        messages,
+        temperature: 0.1,
+        stream: Some(true),
+        functions: None,
+    }
+}
 
 fn get_request_with_powershell_functions(messages: Messages) -> OpenAiRequest {
     OpenAiRequest {
-        model: "gpt-3.5-turbo".to_string(),
+        model: MODEL.to_string(),
         messages,
         temperature: 0.9,
         stream: Some(true),
@@ -52,42 +108,7 @@ pub async fn print_models(openai_api_key: &str, client: &reqwest::Client) -> Res
     Ok(res.text().await?)
 }
 
-struct OpenAiResponseIter {
-    buffer: Vec<u8>,
-}
-
-impl Iterator for OpenAiResponseIter {
-    type Item = OpenAiResponse;
-
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.buffer.is_empty() {
-            return None;
-        }
-        let index = if let Some(newline_index) = self.buffer.iter().position(|&x| x == b'\n') {
-            newline_index
-        } else {
-            self.buffer.len()
-        };
-        let line = self.buffer.drain(..=index).collect::<Vec<u8>>();
-        self.buffer.remove(0);
-        if line.is_empty() {
-            return None;
-        }
-        if line.starts_with(b"data: [DONE]") {
-            return None;
-        }
-        if let Ok(openai_resp) = serde_json::from_slice(&line[6..]) {
-            Some(openai_resp)
-        } else {
-            eprintln!("could not parse: {:?}", String::from_utf8(line.to_vec()));
-            None
-        }
-    }
-}
-
-pub async fn get_next(openai_api_key: &str, client: &reqwest::Client, mut history: Messages) -> Result<Messages, Box<dyn Error>> {
-    let request = get_request_with_powershell_functions(history.clone());
+async fn get_next_from_request(openai_api_key: &str, client: &reqwest::Client, request: OpenAiRequest) -> Result<Message, Box<dyn Error>> {
     let body_str = serde_json::to_string(&request)?;
     let mut response = client.post("https://api.openai.com/v1/chat/completions")
         .header("Content-Type", "application/json")
@@ -105,6 +126,10 @@ pub async fn get_next(openai_api_key: &str, client: &reqwest::Client, mut histor
     let mut function_name = String::new();
     let mut function_arguments = String::new();
 
+    if response.status() != 200 {
+        log::error!("Received Error '{}' from openai api: {:?}", response.status(), response.text().await?);
+        return Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Error from api")))?
+    }
     while let Some(chunk) = response.chunk().await.expect("Did not get new chunk after awaiting") {
         let openai_response_iter = OpenAiResponseIter {
             buffer: chunk.to_vec(),
@@ -144,8 +169,22 @@ pub async fn get_next(openai_api_key: &str, client: &reqwest::Client, mut histor
         };
         new_msg.function_call = Some(f_call);
     }
+    Ok(new_msg)
+}
 
+pub async fn get_next(openai_api_key: &str, client: &reqwest::Client, mut history: Messages) -> Result<Messages, Box<dyn Error>> {
+    let request = get_chat_request(history.clone());
+    let new_msg = get_next_from_request(openai_api_key, client, request).await?;
+    history.push(new_msg);
+    Ok(history)
+}
 
+pub async fn get_next_powershell_command(openai_api_key: &str, client: &reqwest::Client, mut history: Messages) -> Result<Messages, Box<dyn Error>> {
+    let request = get_request_with_powershell_functions(history.clone());
+    let mut new_msg = get_next_from_request(openai_api_key, client, request).await?;
+    if let Ok(serialized_function_call) = serde_json::to_string(&new_msg.function_call) {
+        new_msg.content = serialized_function_call;
+    }
     history.push(new_msg);
     Ok(history)
 }
