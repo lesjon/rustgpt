@@ -12,7 +12,7 @@ pub trait ChatHistory {
     fn set_system_message(&mut self, msg: &str);
     fn add_message(&mut self, role: &str, msg: &str);
 
-    fn add_powershell_message(&mut self, msg: &str);
+    fn add_powershell_message(&mut self, name: &str, msg: &str);
 
     fn from(openai_message: Message) -> Messages {
         Messages(vec![openai_message])
@@ -57,6 +57,7 @@ impl ChatHistory for Messages {
             role: "system".to_string(),
             content: msg.to_string(),
             function_call: None,
+            name: None,
         };
         self.0.insert(0, openai_msg)
     }
@@ -66,12 +67,22 @@ impl ChatHistory for Messages {
             role: role.to_string(),
             content: msg.to_string(),
             function_call: None,
+            name: None,
         };
         self.0.push(openai_msg);
     }
 
-    fn add_powershell_message(&mut self, msg: &str) {
-        self.add_message("function", msg)
+    fn add_powershell_message(&mut self, name: &str, output: &str) {
+        let mut response_map = HashMap::new();
+        response_map.insert("stdout", output);
+        let output_json = serde_json::to_string(&response_map).expect("Could not serialize Hashmap to json");
+        let openai_msg = Message {
+            role: "function".to_string(),
+            content: output_json,
+            function_call: None,
+            name: Some(name.into()),
+        };
+        self.0.push(openai_msg);
     }
 
     fn clear_system_messages(&mut self) {
@@ -88,8 +99,10 @@ impl ChatHistory for Messages {
 pub struct Message {
     pub content: String,
     pub role: String,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCall>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>
 }
 
 impl Display for Message {
@@ -97,9 +110,7 @@ impl Display for Message {
         write!(f, "{}:{}", self.role, self.content)?;
         if let Some(call) = &self.function_call {
             write!(f, "{}(", call.name)?;
-            for entry in &call.arguments {
-                write!(f, "{}:{}", entry.0, entry.1)?;
-            }
+            write!(f, "{}", call.arguments)?;
             write!(f, ")")?;
         }
         write!(f, "\n")?;
@@ -134,6 +145,7 @@ pub struct OpenAiRequest {
     pub messages: Messages,
     pub temperature: f32,
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<Vec<OpenaiFunction>>,
 }
 
@@ -164,8 +176,7 @@ pub struct Delta {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FunctionCall {
     pub name: String,
-    #[serde(flatten)]
-    pub arguments: HashMap<String, String>,
+    pub arguments: String
 }
 
 #[derive(Debug, Serialize, Deserialize)]

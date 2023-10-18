@@ -19,7 +19,7 @@ impl Iterator for OpenAiResponseIter {
     type Item = OpenAiResponse;
 
     fn next(&mut self) -> Option<Self::Item> {
-        log::debug!("Getting next part from buffer:'{:?}'", self.buffer);
+        log::debug!("Getting next part from buffer:'{:?}'", String::from_utf8_lossy(self.buffer.as_ref()));
         if self.buffer.is_empty() {
             log::debug!("buffer is empty returning None");
             return None;
@@ -31,7 +31,7 @@ impl Iterator for OpenAiResponseIter {
             self.buffer.len()
         };
         let line = self.buffer.drain(..=index).collect::<Vec<u8>>();
-        log::debug!("Clearing buffer '{:?}' as it's stored in line: {:?}", self.buffer, line);
+        log::debug!("Clearing buffer '{:?}' as it's stored in line: {:?}", String::from_utf8_lossy(self.buffer.as_ref()), String::from_utf8_lossy(line.as_ref()));
         self.buffer.remove(0);
         if line.is_empty() {
             log::debug!("No data in line, returning None");
@@ -41,7 +41,7 @@ impl Iterator for OpenAiResponseIter {
             log::debug!("End of data message");
             return None;
         }
-        log::debug!("serde_json parsing '{:?}'", line);
+        log::debug!("serde_json parsing '{}'", String::from_utf8_lossy(line.as_ref()));
         if let Ok(openai_resp) = serde_json::from_slice(&line[6..]) {
             Some(openai_resp)
         } else {
@@ -55,7 +55,7 @@ fn get_chat_request(messages: Messages) -> OpenAiRequest {
     OpenAiRequest {
         model: MODEL.to_string(),
         messages,
-        temperature: 0.1,
+        temperature: 0.5,
         stream: Some(true),
         functions: None,
     }
@@ -65,7 +65,7 @@ fn get_request_with_powershell_functions(messages: Messages) -> OpenAiRequest {
     OpenAiRequest {
         model: MODEL.to_string(),
         messages,
-        temperature: 0.9,
+        temperature: 0.1,
         stream: Some(true),
         functions: Some(vec![
             OpenaiFunction {
@@ -110,6 +110,7 @@ pub async fn print_models(openai_api_key: &str, client: &reqwest::Client) -> Res
 
 async fn get_next_from_request(openai_api_key: &str, client: &reqwest::Client, request: OpenAiRequest) -> Result<Message, Box<dyn Error>> {
     let body_str = serde_json::to_string(&request)?;
+    log::debug!("GET https://api.openai.com/v1/chat/completions response with message: {body_str}");
     let mut response = client.post("https://api.openai.com/v1/chat/completions")
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {openai_api_key}"))
@@ -120,6 +121,7 @@ async fn get_next_from_request(openai_api_key: &str, client: &reqwest::Client, r
         content: String::new(),
         role: String::new(),
         function_call: None,
+        name: None,
     };
     let mut rec_role = String::new();
     let mut rec_content = String::new();
@@ -128,9 +130,10 @@ async fn get_next_from_request(openai_api_key: &str, client: &reqwest::Client, r
 
     if response.status() != 200 {
         log::error!("Received Error '{}' from openai api: {:?}", response.status(), response.text().await?);
-        return Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Error from api")))?
+        return Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Error from api")))?;
     }
     while let Some(chunk) = response.chunk().await.expect("Did not get new chunk after awaiting") {
+        log::debug!("Parsing chunk:'{}'", String::from_utf8_lossy(chunk.as_ref()));
         let openai_response_iter = OpenAiResponseIter {
             buffer: chunk.to_vec(),
         };
@@ -162,10 +165,9 @@ async fn get_next_from_request(openai_api_key: &str, client: &reqwest::Client, r
     new_msg.role = rec_role;
     new_msg.content = rec_content;
     if !function_name.is_empty() {
-        let args = serde_json::from_str::<HashMap<String, String>>(&function_arguments);
         let f_call = FunctionCall {
             name: function_name,
-            arguments: args.expect(&format!("could not parse: {function_arguments:?}")),
+            arguments: function_arguments,
         };
         new_msg.function_call = Some(f_call);
     }
@@ -181,10 +183,7 @@ pub async fn get_next(openai_api_key: &str, client: &reqwest::Client, mut histor
 
 pub async fn get_next_powershell_command(openai_api_key: &str, client: &reqwest::Client, mut history: Messages) -> Result<Messages, Box<dyn Error>> {
     let request = get_request_with_powershell_functions(history.clone());
-    let mut new_msg = get_next_from_request(openai_api_key, client, request).await?;
-    if let Ok(serialized_function_call) = serde_json::to_string(&new_msg.function_call) {
-        new_msg.content = serialized_function_call;
-    }
+    let new_msg = get_next_from_request(openai_api_key, client, request).await?;
     history.push(new_msg);
     Ok(history)
 }

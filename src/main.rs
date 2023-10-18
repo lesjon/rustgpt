@@ -1,9 +1,8 @@
-use std::{env, io};
+use std::env;
+use std::collections::HashMap;
 use std::error::Error;
-use std::io::Read;
-use rustgpt::openai;
-use rustgpt::openai::ChatHistory;
-use rustgpt::openai::config::Settings;
+use std::io::{self, Read};
+use rustgpt::openai::{self, ChatHistory, config::Settings};
 use rustgpt::powershell;
 
 async fn models() -> Result<(), Box<dyn Error>> {
@@ -24,7 +23,7 @@ async fn chat<'a>(settings: &Settings, args: &[&str]) -> Result<(), Box<dyn Erro
 
     let httpclient = reqwest::Client::new();
     let openai_api_key = env::var("OPENAI_API_KEY").unwrap();
-    let completion = openai::get_next_powershell_command(&openai_api_key, &httpclient, conversation);
+    let completion = openai::get_next(&openai_api_key, &httpclient, conversation);
     conversation = completion.await?;
     settings.write_history(conversation)
 }
@@ -47,9 +46,10 @@ async fn pwsh<'a>(settings: &Settings, args: &[&str]) -> Result<(), Box<dyn Erro
     conversation = completion.await?;
     if let Some(msg) = conversation.last() {
         if let Some(function_call) = &msg.function_call {
-            if let Some(cmd) = function_call.arguments.get("command") {
+            if let Some(cmd) = serde_json::from_str::<HashMap<String, String>>(&function_call.arguments)?.get("command") {
                 let output = powershell::run_command(cmd);
-                conversation.add_powershell_message(&output);
+                let function_name = function_call.name.clone();
+                conversation.add_powershell_message(&function_name, &output);
             }
         }
     }
