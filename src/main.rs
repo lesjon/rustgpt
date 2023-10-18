@@ -53,6 +53,8 @@ async fn pwsh<'a>(settings: &Settings, args: &[&str]) -> Result<(), Box<dyn Erro
             }
         }
     }
+    let pwsh_response = conversation.last().unwrap();
+    print!("{}", pwsh_response);
     settings.write_history(conversation)
 }
 
