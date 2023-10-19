@@ -89,8 +89,8 @@ impl ChatHistory for Messages {
         self.0.retain(|msg| msg.role != "system");
     }
 
-    fn get_system_messages(&self) -> Vec<&Message>{
-         self.0.iter().filter(|msg| msg.role == "system").collect()
+    fn get_system_messages(&self) -> Vec<&Message> {
+        self.0.iter().filter(|msg| msg.role == "system").collect()
     }
 }
 
@@ -102,18 +102,31 @@ pub struct Message {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>
+    pub name: Option<String>,
 }
 
 impl Display for Message {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.role, self.content)?;
-        if let Some(call) = &self.function_call {
-            write!(f, "{}(", call.name)?;
-            write!(f, "{}", call.arguments)?;
-            write!(f, ")")?;
+        match &self.role[..] {
+            "function" => {
+                if let Ok(arguments) = serde_json::from_str::<HashMap<String, String>>(&self.content) {
+                    write!(f, "{}:{{", self.role)?;
+                    for (k, v) in arguments {
+                        write!(f, "\"{}\":\"{}\"", k, v)?;
+                    }
+                    write!(f, "}}")?;
+                }
+            }
+            _ => {
+                write!(f, "{}:{}", self.role, self.content)?;
+                if let Some(call) = &self.function_call {
+                    write!(f, "{}(", call.name)?;
+                    write!(f, "{}", call.arguments)?;
+                    write!(f, ")")?;
+                }
+                write!(f, "\n")?;
+            }
         }
-        write!(f, "\n")?;
         Ok(())
     }
 }
@@ -176,7 +189,7 @@ pub struct Delta {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FunctionCall {
     pub name: String,
-    pub arguments: String
+    pub arguments: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

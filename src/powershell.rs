@@ -3,6 +3,7 @@ use std::process::{Child, Command, Stdio};
 use std::str;
 
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
@@ -15,7 +16,14 @@ pub fn get_instance() -> std::io::Result<Child> {
 }
 
 pub fn run_command(command: &str) -> String {
+    let cwd = if let Ok(path) = std::env::current_dir() {
+        path
+    } else {
+        log::warn!("Could not get current working directory from env!");
+        PathBuf::new()
+    };
     let cmd = Command::new("powershell.exe")
+        .current_dir(cwd)
         .arg(command)
         .output()
         .expect("failed to execute command");
