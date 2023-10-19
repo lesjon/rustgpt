@@ -73,12 +73,9 @@ impl ChatHistory for Messages {
     }
 
     fn add_powershell_message(&mut self, name: &str, output: &str) {
-        let mut response_map = HashMap::new();
-        response_map.insert("stdout", output);
-        let output_json = serde_json::to_string(&response_map).expect("Could not serialize Hashmap to json");
         let openai_msg = Message {
             role: "function".to_string(),
-            content: output_json,
+            content: output.to_string(),
             function_call: None,
             name: Some(name.into()),
         };
@@ -107,26 +104,13 @@ pub struct Message {
 
 impl Display for Message {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.role[..] {
-            "function" => {
-                if let Ok(arguments) = serde_json::from_str::<HashMap<String, String>>(&self.content) {
-                    write!(f, "{}:{{", self.role)?;
-                    for (k, v) in arguments {
-                        write!(f, "\"{}\":\"{}\"", k, v)?;
-                    }
-                    write!(f, "}}")?;
-                }
-            }
-            _ => {
-                write!(f, "{}:{}", self.role, self.content)?;
-                if let Some(call) = &self.function_call {
-                    write!(f, "{}(", call.name)?;
-                    write!(f, "{}", call.arguments)?;
-                    write!(f, ")")?;
-                }
-                write!(f, "\n")?;
-            }
+        write!(f, "{}:{}", self.role, self.content)?;
+        if let Some(call) = &self.function_call {
+            write!(f, "{}(", call.name)?;
+            write!(f, "{}", call.arguments)?;
+            write!(f, ")")?;
         }
+        write!(f, "\n")?;
         Ok(())
     }
 }

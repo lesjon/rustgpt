@@ -4,11 +4,11 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use crate::openai::{ChatHistory, Messages};
 
-const DEFAULT_MODEL: &str = "gpt-3.5-turbo";
-const DEFAULT_FILE_NAME: &str = "rustgpt/conversation.json";
-const DEFAULT_CONFIG_FILE: &str = "rustgpt/config.json";
+pub const DEFAULT_MODEL: &str = "gpt-3.5-turbo";
+pub const DEFAULT_FILE_NAME: &str = "rustgpt/conversation.json";
+pub const DEFAULT_CONFIG_FILE: &str = "rustgpt/config.json";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
     model: String,
     history_file: String,
@@ -28,8 +28,8 @@ impl Settings {
 }
 
 impl Settings {
-    pub fn from_file() -> Result<Settings, Box<dyn Error>> {
-        let config_content = fs::read_to_string(DEFAULT_CONFIG_FILE)?;
+    pub fn from_file(path: &str) -> Result<Settings, Box<dyn Error>> {
+        let config_content = fs::read_to_string(path)?;
         Ok(serde_json::from_str(&config_content)?)
     }
 
@@ -42,12 +42,20 @@ impl Settings {
         Ok(fs::write(path, config_str)?)
     }
 
-    pub fn new() -> Settings {
-        Settings {
-            model: DEFAULT_MODEL.to_string(),
-            history_file: DEFAULT_FILE_NAME.to_string(),
-            config_file: DEFAULT_CONFIG_FILE.to_string(),
+    pub fn create(history_file: &str, settings_file: &str, model: &str) -> Settings {
+        let settings = Settings {
+            model: model.to_string(),
+            history_file: history_file.to_string(),
+            config_file: settings_file.to_string(),
+        };
+        if let Err(e) = settings.save() {
+            log::warn!("Could not save settings: {}", e);
         }
+        settings
+    }
+
+    pub fn default() -> Settings {
+        Self::create(DEFAULT_FILE_NAME, DEFAULT_CONFIG_FILE, DEFAULT_MODEL)
     }
 
     // read the history file if it exists, or create a new one if it doesn't

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io::{self, Read};
 use rustgpt::openai::{self, ChatHistory, config::Settings};
+use rustgpt::openai::config;
 use rustgpt::powershell;
 
 async fn models() -> Result<(), Box<dyn Error>> {
@@ -50,11 +51,11 @@ async fn pwsh<'a>(settings: &Settings, args: &[&str]) -> Result<(), Box<dyn Erro
                 let output = powershell::run_command(cmd);
                 let function_name = function_call.name.clone();
                 conversation.add_powershell_message(&function_name, &output);
+                let pwsh_response = conversation.last().unwrap();
+                print!("{}", pwsh_response);
             }
         }
     }
-    let pwsh_response = conversation.last().unwrap();
-    print!("{}", pwsh_response);
     settings.write_history(conversation)
 }
 
@@ -86,8 +87,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let args = env::args().collect::<Vec<String>>();
     let args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let settings = Settings::new();
-    return match args.as_slice() {
+    let settings = Settings::from_file(config::DEFAULT_CONFIG_FILE)
+        .or(Ok(Settings::default()) as Result<_, Box<dyn Error>>)?;
+    let result = match args.as_slice() {
         &[] => { panic!("can not call program without any args!") }
         &[_] => { Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Invalid number of arguments")))? }
         &[_, command, ..] => {
@@ -120,6 +122,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             };
         }
     };
+    result
 }
 
 
