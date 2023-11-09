@@ -28,11 +28,13 @@ impl Iterator for OpenAiResponseIter {
             newline_index
         } else {
             log::debug!("No more newlines in buffer, returning using full length of buffer");
-            self.buffer.len()
+            self.buffer.len()-1
         };
         let line = self.buffer.drain(..=index).collect::<Vec<u8>>();
         log::debug!("Clearing buffer '{:?}' as it's stored in line: {:?}", String::from_utf8_lossy(self.buffer.as_ref()), String::from_utf8_lossy(line.as_ref()));
-        self.buffer.remove(0);
+        if !self.buffer.is_empty(){
+            self.buffer.remove(0);
+        }
         if line.is_empty() {
             log::debug!("No data in line, returning None");
             return None;
